@@ -5,6 +5,7 @@
   var height = document.getElementById('three').getBoundingClientRect().height;
   var min = Infinity;
   var max = -Infinity
+  // var corners = [[37.569509,-3.226477],[37.109495,-2.955422]] //TODO
 
   //add light
   var light = new THREE.DirectionalLight( 0xffffff, 0.75 );
@@ -36,29 +37,57 @@
   camera.position.y = 600;
   camera.position.z = 600;
 
-  var controls = new THREE.OrbitControls(camera, renderer.domElement); 
+  var controls = new THREE.OrbitControls(camera, renderer.domElement);
 
   var canvas = document.getElementById('myCanvas');
+  canvas.height = 395
+  canvas.width = 670
+  // canvas.height = Math.abs(lr[1] - ul[1]);
+  // canvas.width = Math.abs(lr[0] - ul[0]);
   var context = canvas.getContext('2d');
   var cols, rows;
 
-  const loadTile = () => {
-      const url = `https://a.tiles.mapbox.com/v4/mapbox.terrain-rgb/10/617/520@2x.pngraw?access_token=${accessToken}`
-      return fetch(url)
+  const tiles = [
+    {
+      url: `https://a.tiles.mapbox.com/v4/mapbox.terrain-rgb/10/617/520@2x.pngraw?access_token=`,
+      px: -285,
+      py: -210
+    },
+    {
+      url: `https://a.tiles.mapbox.com/v4/mapbox.terrain-rgb/10/618/520@2x.pngraw?access_token=`,
+      px: 227,
+      py: -210
+    },
+    {
+      url: `https://c.tiles.mapbox.com/v4/mapbox.terrain-rgb/10/617/521@2x.pngraw?access_token=`,
+      px: -285,
+      py: 302
+    },
+    {
+      url: `https://c.tiles.mapbox.com/v4/mapbox.terrain-rgb/10/618/521@2x.pngraw?access_token=`,
+      px: 227,
+      py: 302
+    }
+  ];
+
+  const loadTile = (tile) => {
+      tile.url += accessToken;
+      return fetch(tile.url)
         .then(function(response) {
-          return response.blob()
+          return response.blob();
         })
         .then(function(blob) {
-          return URL.createObjectURL(blob);
+          tile.imgUrl = URL.createObjectURL(blob);
+          return tile;
         });
   }
 
-  function getImageData(imgUrl) {
+  function getImageData({imgUrl, px, py}) {
     return new Promise((res, rej) => {
       var imageObj = new Image();
 
       imageObj.onload = () => {
-          context.drawImage(imageObj, 0, 0);
+          context.drawImage(imageObj, px, py);
           res(context.getImageData(0, 0, canvas.width, canvas.height));
       }
 
@@ -68,7 +97,7 @@
 
   //convert ndarray of RGB values into an elevation number
   function getElevations(pixels){
-
+    console.log('pixels', pixels);
     cols = pixels.width;
     rows = pixels.height;
     var channels = 4;
@@ -110,7 +139,7 @@
 
   function getTexture() {
     return new Promise((res, rej) => {
-      var satelliteUrl = `https://api.mapbox.com/v4/mapbox.satellite/37.346846600934384,-3.0864321822865963,11/661x354@2x.png?access_token=${accessToken}`
+      var satelliteUrl = `https://api.mapbox.com/v4/mapbox.satellite/37.339472620806845,-3.0909743575721165,11/670x395@2x.png?access_token=${accessToken}`
       var texture = new THREE.TextureLoader()
         .load(
             satelliteUrl,
@@ -129,13 +158,17 @@
   function makeMesh(elevs) {
     return getTexture()
       .then((texture) => {
+        console.log('texture', texture)
         var geometry = new THREE.PlaneGeometry(cols, rows, cols-1, rows-1);
         for (var i = 0; i < geometry.vertices.length; i++) geometry.vertices[i].z = meterToPx(elevs[i]);
+
+        geometry.computeVertexNormals();
+
         return new THREE.Mesh(geometry, texture);
       })
   }
 
-  function meterToPx(m){    
+  function meterToPx(m){
     var zoom = 11;
     var tileSize = 512;
     function mPerPixel(latitude) {
@@ -169,14 +202,18 @@
   }
   window.addEventListener( 'resize', onWindowResize, false );
 
-  loadTile()
-    .then(getImageData)
-    .then(getElevations)
-    .then(makeMesh)
-    .then(addToScene)
-    .then(render)
+  return Promise.all(tiles.map((tile) => {
+    return loadTile(tile)
+      .then(getImageData)
+  }))
+  .then((imgs) => {
+    return Promise.resolve(getElevations(imgs[imgs.length-1]))
+      .then(makeMesh)
+      .then(addToScene)
+      .then(render)
+  })
     .catch((err) => {
-      console.log(err); 
+      console.log(err);
     });
 
 })();

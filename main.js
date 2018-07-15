@@ -1,15 +1,46 @@
 (function() {
   var accessToken = 'pk.eyJ1IjoiZGFucGF6IiwiYSI6ImNqMjVpYmk5czAwN2sycXBjYmd0eGNrdjkifQ.WLg6LD184VYKYQPbW7NY7w';
   var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
-  var renderer = new THREE.WebGLRenderer();
-  var controls = new THREE.OrbitControls( camera );
+  var width  = document.getElementById('three').getBoundingClientRect().width;
+  var height = document.getElementById('three').getBoundingClientRect().height;
+  var min = Infinity;
+  var max = -Infinity
+
+  //add light
+  var light = new THREE.DirectionalLight( 0xffffff, 0.75 );
+  light.position.set(300,1600,0);
+  light.castShadow = true;
+  var dLight = 200;
+  var sLight = dLight * 0.25;
+  light.shadow.camera.right = sLight;
+  light.shadow.camera.top = sLight;
+  light.shadow.camera.near = dLight / 30;
+  light.shadow.camera.far = dLight;
+  light.shadow.mapSize.x = 1024 * 2;
+  light.shadow.mapSize.y = 1024 * 2;
+
+  scene.add(light);
+
+  var world = new THREE.Group();
+  world.rotation.x =- Math.PI/2;
+
+  scene.add(world);
+
+  var renderer = new THREE.WebGLRenderer({alpha:true, antialias:false});
+  renderer.setSize(width, height)
+  renderer.setPixelRatio(window.devicePixelRatio)
+  document.getElementById('three')
+      .appendChild(renderer.domElement);
+
+  var camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000);
+  camera.position.y = 600;
+  camera.position.z = 600;
+
+  var controls = new THREE.OrbitControls(camera, renderer.domElement); 
+
   var canvas = document.getElementById('myCanvas');
   var context = canvas.getContext('2d');
   var cols, rows;
-
-  camera.position.z = 5;
-
 
   const loadTile = () => {
       const url = `https://a.tiles.mapbox.com/v4/mapbox.terrain-rgb/10/617/520@2x.pngraw?access_token=${accessToken}`
@@ -22,7 +53,7 @@
         });
   }
 
-  function getImageData(img) {
+  function getImageData(imgUrl) {
     return new Promise((res, rej) => {
       var imageObj = new Image();
 
@@ -31,52 +62,51 @@
           res(context.getImageData(0, 0, canvas.width, canvas.height));
       }
 
-      imageObj.src = img;
+      imageObj.src = imgUrl;
     });
   }
 
   //convert ndarray of RGB values into an elevation number
-    function getElevations(pixels){
+  function getElevations(pixels){
 
-      cols = pixels.width;
-      rows = pixels.height;
-      var channels = 4;
+    cols = pixels.width;
+    rows = pixels.height;
+    var channels = 4;
 
-      var min = Infinity;
-      var max = -Infinity
-      var output = [];
+    var output = [];
 
-      var upsampledResolution = {};
+    var upsampledResolution = {};
 
-      for (var r = 0; r < rows; r++){
+    for (var r = 0; r < rows; r++){
 
-        var lastElev = null;
-        var consecutiveCount = 0;
+      var lastElev = null;
+      var consecutiveCount = 0;
 
-        for (var c = 0; c < cols; c++){
-          var currentPixelIndex = (r*cols+c) * channels;
-          var R = pixels.data[currentPixelIndex];
-          var G = pixels.data[currentPixelIndex+1];
-          var B = pixels.data[currentPixelIndex+2];
+      for (var c = 0; c < cols; c++){
+        var currentPixelIndex = (r*cols+c) * channels;
+        var R = pixels.data[currentPixelIndex];
+        var G = pixels.data[currentPixelIndex+1];
+        var B = pixels.data[currentPixelIndex+2];
 
-          var elev = (R * 256 * 256 + G * 256 + B)/10-10000;
-          if (elev<min) min = elev
-          if (elev>max) max = elev
+        var elev = (R * 256 * 256 + G * 256 + B)/10-10000;
+        if (elev<min) min = elev
+        if (elev>max) max = elev
 
-          if (elev === lastElev) consecutiveCount++
+        if (elev === lastElev) consecutiveCount++
 
-          else {
-            if (upsampledResolution[consecutiveCount]) upsampledResolution[consecutiveCount]++
-            else upsampledResolution[consecutiveCount] = 1
-            consecutiveCount = 0
-          }
-
-          lastElev = elev
-          output.push(elev)
+        else {
+          if (upsampledResolution[consecutiveCount]) upsampledResolution[consecutiveCount]++
+          else upsampledResolution[consecutiveCount] = 1
+          consecutiveCount = 0
         }
 
+        lastElev = elev
+        output.push(elev)
       }
+
     }
+    return output;
+  }
 
   function getTexture() {
     return new Promise((res, rej) => {
@@ -96,43 +126,57 @@
     });
   }
 
-  function addToScene(elevs) {
+  function makeMesh(elevs) {
     return getTexture()
       .then((texture) => {
         var geometry = new THREE.PlaneGeometry(cols, rows, cols-1, rows-1);
         for (var i = 0; i < geometry.vertices.length; i++) geometry.vertices[i].z = meterToPx(elevs[i]);
-        var mesh = new THREE.Mesh(geometry, texture);
-      console.log(mesh);
-        scene.add(mesh)        
+        return new THREE.Mesh(geometry, texture);
       })
   }
 
-
-  // init
-  window.addEventListener( 'resize', onWindowResize, false );
-
-  function onWindowResize() {
-    camera.updateProjectionMatrix();
-    renderer.setSize( window.innerWidth, window.innerHeight );
+  function meterToPx(m){    
+    var zoom = 11;
+    var tileSize = 512;
+    function mPerPixel(latitude) {
+      return Math.abs(
+        40075000 * Math.cos(latitude*Math.PI/180) / (Math.pow(2, zoom) * tileSize )
+      );
+    }
+    //var avgLat = (state.bbox[0][1]+state.bbox[1][1])/2;
+    var avgLat = -3.0864321822865963;
+    return (m-min) / mPerPixel(avgLat);
   }
 
-  renderer.setSize( window.innerWidth, window.innerHeight );
-  document.body.appendChild( renderer.domElement );
+  function addToScene(mesh) {
+    console.log('mesh', mesh);
+    world.add(mesh);
+  }
 
   function render() {
+    controls.update();
+
     requestAnimationFrame( render );
     renderer.render( scene, camera );
   }
-  
+
+  // init
+  function onWindowResize() {
+      var threeWidth = document.querySelector('#three').offsetWidth;
+      camera.aspect = threeWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize( threeWidth, window.innerHeight );
+  }
+  window.addEventListener( 'resize', onWindowResize, false );
 
   loadTile()
     .then(getImageData)
     .then(getElevations)
+    .then(makeMesh)
     .then(addToScene)
-    .then(() => render())
+    .then(render)
     .catch((err) => {
       console.log(err); 
     });
-
 
 })();

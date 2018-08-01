@@ -97,7 +97,6 @@
 
   //convert ndarray of RGB values into an elevation number
   function getElevations(pixels){
-    console.log('pixels', pixels);
     cols = pixels.width;
     rows = pixels.height;
     var channels = 4;
@@ -139,7 +138,7 @@
 
   function getTexture() {
     return new Promise((res, rej) => {
-      var satelliteUrl = `https://api.mapbox.com/v4/mapbox.satellite/37.339472620806845,-3.0909743575721165,11/670x395@2x.png?access_token=${accessToken}`
+      var satelliteUrl = `https://api.mapbox.com/v4/mapbox.satellite/37.339472620806845,-3.0909743575721165,11/512x256@2x.png?access_token=${accessToken}`
       var texture = new THREE.TextureLoader()
         .load(
             satelliteUrl,
@@ -158,7 +157,6 @@
   function makeMesh(elevs) {
     return getTexture()
       .then((texture) => {
-        console.log('texture', texture)
         var geometry = new THREE.PlaneGeometry(cols, rows, cols-1, rows-1);
         for (var i = 0; i < geometry.vertices.length; i++) geometry.vertices[i].z = meterToPx(elevs[i]);
 
@@ -182,7 +180,6 @@
   }
 
   function addToScene(mesh) {
-    console.log('mesh', mesh);
     world.add(mesh);
   }
 
@@ -205,10 +202,11 @@
   return Promise.all(tiles.map((tile) => {
     return loadTile(tile)
       .then(getImageData)
+      .then(getElevations)
   }))
-  .then((imgs) => {
-    return Promise.resolve(getElevations(imgs[imgs.length-1]))
-      .then(makeMesh)
+  .then((elevs) => {
+    var merged = [].concat.apply([], elevs);
+    return makeMesh(merged)
       .then(addToScene)
       .then(render)
   })

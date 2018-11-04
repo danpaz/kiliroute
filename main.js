@@ -73,27 +73,21 @@
   const loadTile = (tile) => {
       tile.url += accessToken;
       return fetch(tile.url)
-        .then(function(response) {
-          return response.blob();
-        })
-        .then(function(blob) {
-          tile.imgUrl = URL.createObjectURL(blob);
-          return tile;
+        .then((res) => res.blob())
+        .then((blob) => {
+          return new Promise((res, rej) => {
+            var imageObj = new Image();
+
+            imageObj.onload = () => {
+                context.drawImage(imageObj, tile.px, tile.py);
+                res();
+            }
+
+            imageObj.src = URL.createObjectURL(blob);
+          });
         });
   }
 
-  function getImageData({imgUrl, px, py}) {
-    return new Promise((res, rej) => {
-      var imageObj = new Image();
-
-      imageObj.onload = () => {
-          context.drawImage(imageObj, px, py);
-          res(context.getImageData(0, 0, canvas.width, canvas.height));
-      }
-
-      imageObj.src = imgUrl;
-    });
-  }
 
   //convert ndarray of RGB values into an elevation number
   function getElevations(pixels){
@@ -103,13 +97,7 @@
 
     var output = [];
 
-    var upsampledResolution = {};
-
     for (var r = 0; r < rows; r++){
-
-      var lastElev = null;
-      var consecutiveCount = 0;
-
       for (var c = 0; c < cols; c++){
         var currentPixelIndex = (r*cols+c) * channels;
         var R = pixels.data[currentPixelIndex];
@@ -120,15 +108,6 @@
         if (elev<min) min = elev
         if (elev>max) max = elev
 
-        if (elev === lastElev) consecutiveCount++
-
-        else {
-          if (upsampledResolution[consecutiveCount]) upsampledResolution[consecutiveCount]++
-          else upsampledResolution[consecutiveCount] = 1
-          consecutiveCount = 0
-        }
-
-        lastElev = elev
         output.push(elev)
       }
 
@@ -199,17 +178,14 @@
   }
   window.addEventListener( 'resize', onWindowResize, false );
 
-  return Promise.all(tiles.map((tile) => {
-    return loadTile(tile)
-      .then(getImageData)
-      .then(getElevations)
-  }))
-  .then((elevs) => {
-    var merged = [].concat.apply([], elevs);
-    return makeMesh(merged)
-      .then(addToScene)
-      .then(render)
-  })
+  return Promise.all(tiles.map(loadTile))
+    .then(() => context.getImageData(0, 0, canvas.width, canvas.height))
+    .then(getElevations)
+    .then((elevs) => {
+      return makeMesh(elevs)
+        .then(addToScene)
+        .then(render)
+    })
     .catch((err) => {
       console.log(err);
     });

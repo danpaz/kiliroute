@@ -2,3 +2,4 @@
 /target
 **/*.rs.bk
 local/
+node_modules/
